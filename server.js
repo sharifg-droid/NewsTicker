@@ -11,7 +11,8 @@ const fs = require('fs');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const BASE_PATH = process.env.BASE_PATH || '/news';
+const PUBLIC_PATH = process.env.PUBLIC_PATH || '/news';
+const ROUTE_BASE = process.env.ROUTE_BASE || '';
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:' + PORT).replace(/\/$/, '');
 const API_KEY = process.env.SGNEWS_API_KEY || '';
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'sgnews.sqlite');
@@ -97,12 +98,17 @@ function normalizeList(value) {
 
 function nowIso() { return new Date().toISOString(); }
 
+function route(suffix='') {
+  const value = `${ROUTE_BASE}${suffix}`;
+  return value || '/';
+}
+
 function articleUrl(slug) {
-  return SITE_URL + BASE_PATH + '/' + encodeURIComponent(slug);
+  return SITE_URL + PUBLIC_PATH + '/' + encodeURIComponent(slug);
 }
 
 function layout(title, body, extraHead='') {
-  const baseAsset = BASE_PATH === '/' ? '' : BASE_PATH;
+  const baseAsset = PUBLIC_PATH === '/' ? '' : PUBLIC_PATH;
   return `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -117,7 +123,7 @@ ${extraHead}
 <body>
 <header class="site-header">
   <div class="wrap header-inner">
-    <a class="brand" href="${BASE_PATH}">SG News</a>
+    <a class="brand" href="${PUBLIC_PATH}">SG News</a>
     <button class="theme-button" type="button" data-theme-toggle>Light mode</button>
   </div>
 </header>
@@ -152,9 +158,9 @@ const apiLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: tru
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '2mb' }));
-app.use(BASE_PATH + '/assets', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+app.use(route('/assets'), express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
-app.get(BASE_PATH, async (req,res,next) => {
+app.get(route(), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const q = String(req.query.q || '').trim();
@@ -182,7 +188,7 @@ app.get(BASE_PATH, async (req,res,next) => {
           <span class="badge status-${esc(a.status.toLowerCase())}">${esc(a.status)}</span>
           <span class="badge">${esc(a.primary_category)}</span>
         </div>
-        <h2><a href="${BASE_PATH}/${encodeURIComponent(a.slug)}">${esc(a.title)}</a></h2>
+        <h2><a href="${PUBLIC_PATH}/${encodeURIComponent(a.slug)}">${esc(a.title)}</a></h2>
         <p>${esc(a.standfirst)}</p>
         <div class="meta">Published ${new Date(a.published_at).toLocaleDateString('en-GB')} · Updated ${new Date(a.updated_at).toLocaleDateString('en-GB')} · ${esc(a.project_source || a.briefing_type)}</div>
       </article>`;
@@ -191,7 +197,7 @@ app.get(BASE_PATH, async (req,res,next) => {
     const body = `
       <h1>SG News</h1>
       <p class="intro">A searchable record of recurring briefings, research updates and evolving articles. Important pieces rise when they are materially updated.</p>
-      <form class="toolbar" method="get" action="${BASE_PATH}">
+      <form class="toolbar" method="get" action="${PUBLIC_PATH}">
         <input type="search" name="q" value="${esc(q)}" placeholder="Search SG News">
         <select name="category"><option value="">All categories</option>${categories.map(c=>`<option ${c.category===category?'selected':''}>${esc(c.category)}</option>`).join('')}</select>
         <select name="type"><option value="">All briefing types</option>${types.map(t=>`<option ${t.briefing_type===type?'selected':''}>${esc(t.briefing_type)}</option>`).join('')}</select>
@@ -202,7 +208,7 @@ app.get(BASE_PATH, async (req,res,next) => {
   } catch (e) { next(e); }
 });
 
-app.get(BASE_PATH + '/:slug', async (req,res,next) => {
+app.get(route('/:slug'), async (req,res,next) => {
   try {
     const article = await getArticleBySlug(req.params.slug);
     if (!article || article.is_hidden) return res.status(404).send(layout('Not found','<h1>Not found</h1><p>This article is unavailable.</p>'));
@@ -257,7 +263,7 @@ app.get(BASE_PATH + '/:slug', async (req,res,next) => {
   } catch (e) { next(e); }
 });
 
-app.get(BASE_PATH + '/sitemap.xml', async (req,res,next) => {
+app.get(route('/sitemap.xml'), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const rows = await db.all('SELECT slug,updated_at FROM articles WHERE is_hidden=0 ORDER BY updated_at DESC');
@@ -268,16 +274,16 @@ ${rows.map(r=>`<url><loc>${articleUrl(r.slug)}</loc><lastmod>${r.updated_at}</la
   } catch (e) { next(e); }
 });
 
-app.get(BASE_PATH + '/robots.txt', (req,res) => {
+app.get(route('/robots.txt'), (req,res) => {
   res.type('text/plain').send(`User-agent: *
-Allow: ${BASE_PATH}/
-Sitemap: ${SITE_URL}${BASE_PATH}/sitemap.xml
+Allow: ${PUBLIC_PATH}/
+Sitemap: ${SITE_URL}${PUBLIC_PATH}/sitemap.xml
 `);
 });
 
-app.use(BASE_PATH + '/api', apiLimiter, auth);
+app.use(route('/api'), apiLimiter, auth);
 
-app.get(BASE_PATH + '/api/articles', async (req,res,next) => {
+app.get(route('/api/articles'), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const rows = await db.all('SELECT id,slug,title,status,primary_category,briefing_type,project_source,published_at,updated_at,is_hidden,visit_count FROM articles ORDER BY updated_at DESC LIMIT 200');
@@ -285,7 +291,7 @@ app.get(BASE_PATH + '/api/articles', async (req,res,next) => {
   } catch(e){ next(e); }
 });
 
-app.get(BASE_PATH + '/api/articles/:slug', async (req,res,next) => {
+app.get(route('/api/articles/:slug'), async (req,res,next) => {
   try {
     const article = await getArticleBySlug(req.params.slug);
     if (!article) return res.status(404).json({error:'Not found'});
@@ -293,7 +299,7 @@ app.get(BASE_PATH + '/api/articles/:slug', async (req,res,next) => {
   } catch(e){ next(e); }
 });
 
-app.post(BASE_PATH + '/api/articles', async (req,res,next) => {
+app.post(route('/api/articles'), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const title = String(req.body.title || '').trim();
@@ -331,7 +337,7 @@ app.post(BASE_PATH + '/api/articles', async (req,res,next) => {
   } catch(e){ next(e); }
 });
 
-app.put(BASE_PATH + '/api/articles/:slug', async (req,res,next) => {
+app.put(route('/api/articles/:slug'), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const article = await db.get('SELECT * FROM articles WHERE slug=?', req.params.slug);
@@ -376,7 +382,7 @@ app.put(BASE_PATH + '/api/articles/:slug', async (req,res,next) => {
   } catch(e){ next(e); }
 });
 
-app.delete(BASE_PATH + '/api/articles/:slug', async (req,res,next) => {
+app.delete(route('/api/articles/:slug'), async (req,res,next) => {
   try {
     const db = await dbPromise;
     const article = await db.get('SELECT id FROM articles WHERE slug=?', req.params.slug);
@@ -395,7 +401,7 @@ app.use((err,req,res,next) => {
 });
 
 initDb().then(() => {
-  app.listen(PORT, () => console.log(`SG News listening on port ${PORT} at ${BASE_PATH}`));
+  app.listen(PORT, () => console.log(`SG News listening on port ${PORT}; public path ${PUBLIC_PATH}; route base ${ROUTE_BASE || '/'}`));
 }).catch(err => {
   console.error(err);
   process.exit(1);
