@@ -103,8 +103,15 @@ function route(suffix='') {
   return value || '/';
 }
 
+function publicPath(suffix='') {
+  const base = PUBLIC_PATH === '/' ? '' : PUBLIC_PATH.replace(/\/$/, '');
+  const tail = String(suffix || '').replace(/^\/+/, '');
+  if (!tail) return base || '/';
+  return (base || '') + '/' + tail;
+}
+
 function articleUrl(slug) {
-  return SITE_URL + PUBLIC_PATH + '/' + encodeURIComponent(slug);
+  return SITE_URL + publicPath(encodeURIComponent(slug));
 }
 
 function layout(title, body, extraHead='') {
@@ -123,7 +130,7 @@ ${extraHead}
 <body>
 <header class="site-header">
   <div class="wrap header-inner">
-    <a class="brand" href="${PUBLIC_PATH}">SG News</a>
+    <a class="brand" href="${publicPath()}">SG News</a>
     <button class="theme-button" type="button" data-theme-toggle>Light mode</button>
   </div>
 </header>
@@ -188,7 +195,7 @@ app.get(route(), async (req,res,next) => {
           <span class="badge status-${esc(a.status.toLowerCase())}">${esc(a.status)}</span>
           <span class="badge">${esc(a.primary_category)}</span>
         </div>
-        <h2><a href="${PUBLIC_PATH}/${encodeURIComponent(a.slug)}">${esc(a.title)}</a></h2>
+        <h2><a href="${publicPath(encodeURIComponent(a.slug))}">${esc(a.title)}</a></h2>
         <p>${esc(a.standfirst)}</p>
         <div class="meta">Published ${new Date(a.published_at).toLocaleDateString('en-GB')} · Updated ${new Date(a.updated_at).toLocaleDateString('en-GB')} · ${esc(a.project_source || a.briefing_type)}</div>
       </article>`;
@@ -197,7 +204,7 @@ app.get(route(), async (req,res,next) => {
     const body = `
       <h1>SG News</h1>
       <p class="intro">A searchable record of recurring briefings, research updates and evolving articles. Important pieces rise when they are materially updated.</p>
-      <form class="toolbar" method="get" action="${PUBLIC_PATH}">
+      <form class="toolbar" method="get" action="${publicPath()}">
         <input type="search" name="q" value="${esc(q)}" placeholder="Search SG News">
         <select name="category"><option value="">All categories</option>${categories.map(c=>`<option ${c.category===category?'selected':''}>${esc(c.category)}</option>`).join('')}</select>
         <select name="type"><option value="">All briefing types</option>${types.map(t=>`<option ${t.briefing_type===type?'selected':''}>${esc(t.briefing_type)}</option>`).join('')}</select>
@@ -276,8 +283,8 @@ ${rows.map(r=>`<url><loc>${articleUrl(r.slug)}</loc><lastmod>${r.updated_at}</la
 
 app.get(route('/robots.txt'), (req,res) => {
   res.type('text/plain').send(`User-agent: *
-Allow: ${PUBLIC_PATH}/
-Sitemap: ${SITE_URL}${PUBLIC_PATH}/sitemap.xml
+Allow: ${publicPath() === '/' ? '/' : publicPath() + '/'}
+Sitemap: ${SITE_URL}${publicPath('sitemap.xml')}
 `);
 });
 
