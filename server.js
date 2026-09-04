@@ -15,6 +15,8 @@ const PUBLIC_PATH = process.env.PUBLIC_PATH || '/news';
 const ROUTE_BASE = process.env.ROUTE_BASE || '';
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:' + PORT).replace(/\/$/, '');
 const API_KEY = process.env.SGNEWS_API_KEY || '';
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const MAIL_CONTROL_URL = (process.env.MAIL_CONTROL_URL || 'http://127.0.0.1:3200').replace(/\/$/, '');
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'sgnews.sqlite');
 
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
@@ -159,6 +161,55 @@ function auth(req,res,next) {
   const b = Buffer.from(String(API_KEY));
   if (a.length !== b.length || !crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'Unauthorised'});
   next();
+}
+
+
+function adminAuth(req,res,next) {
+  if (!ADMIN_TOKEN) return res.status(503).send(layout('Mail Admin','<h1>Mail Admin</h1><p>Admin access is not configured.</p>','<meta name="robots" content="noindex,nofollow">'));
+
+  const header = String(req.get('authorization') || '');
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) {
+    res.set('WWW-Authenticate', 'Basic realm="SG News Admin"');
+    return res.status(401).send('Authentication required');
+  }
+
+  let decoded = '';
+  try { decoded = Buffer.from(match[1], 'base64').toString('utf8'); } catch {}
+  const colon = decoded.indexOf(':');
+  const username = colon >= 0 ? decoded.slice(0, colon) : '';
+  const password = colon >= 0 ? decoded.slice(colon + 1) : '';
+
+  const userOk = username === 'admin';
+  const supplied = Buffer.from(String(password));
+  const expected = Buffer.from(String(ADMIN_TOKEN));
+  const passOk = supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+
+  if (!userOk || !passOk) {
+    res.set('WWW-Authenticate', 'Basic realm="SG News Admin"');
+    return res.status(401).send('Authentication required');
+  }
+
+  next();
+}
+
+async function mailControl(pathname, options={}) {
+  const response = await fetch(MAIL_CONTROL_URL + pathname, {
+    ...options,
+    headers: {
+      'X-Admin-Token': ADMIN_TOKEN,
+      ...(options.headers || {})
+    }
+  });
+
+  const raw = await response.text();
+  let data;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
+
+  if (!response.ok) {
+    throw new Error(`Mail importer control ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+  }
+  return data;
 }
 
 const apiLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
@@ -398,6 +449,54 @@ app.delete(route('/api/articles/:slug'), async (req,res,next) => {
     await db.run('INSERT INTO revisions(article_id,changed_at,summary) VALUES (?,?,?)', article.id, nowIso(), 'Article hidden');
     res.json({ok:true, hidden:true});
   } catch(e){ next(e); }
+});
+
+
+app.get(route('/admin/mail'), adminAuth, async (req,res) => {
+  try {
+    const status = await mailControl('/status');
+    const lastCheck = status.last_check ? new Date(status.last_check).toLocaleString('en-GB') : 'Never';
+    const lastResult = status.last_result || {};
+    const body = `
+      <section class="card">
+        <div class="badges">
+          <span class="badge">Admin</span>
+          <span class="badge status-confirmed">Mail Importer</span>
+        </div>
+        <h1>SG News Mail Importer</h1>
+        <p>Check the articles mailbox immediately instead of waiting for the hourly automatic check.</p>
+        <div class="meta">
+          Last check: ${esc(lastCheck)}<br>
+          Automatic interval: ${Math.round((status.poll_seconds || 3600) / 60)} minutes<br>
+          Last result: ${Number(lastResult.found || 0)} found, ${Number(lastResult.processed || 0)} processed, ${Number(lastResult.errors || 0)} errors
+        </div>
+        <form method="post" action="${route('/admin/mail/check')}">
+          <button type="submit">Check mailbox now</button>
+        </form>
+      </section>`;
+    res.send(layout('Mail Admin', body, '<meta name="robots" content="noindex,nofollow">'));
+  } catch (error) {
+    res.status(500).send(layout('Mail Admin', `<h1>Mail Admin</h1><p>${esc(error.message || error)}</p>`, '<meta name="robots" content="noindex,nofollow">'));
+  }
+});
+
+app.post(route('/admin/mail/check'), adminAuth, async (req,res) => {
+  try {
+    const result = await mailControl('/check-now', { method:'POST' });
+    const body = `
+      <section class="card">
+        <div class="badges">
+          <span class="badge">Admin</span>
+          <span class="badge status-confirmed">Mail Importer</span>
+        </div>
+        <h1>Mailbox checked</h1>
+        <p>Found ${Number(result.found || 0)} new message(s), processed ${Number(result.processed || 0)}, errors ${Number(result.errors || 0)}.</p>
+        <p><a href="${route('/admin/mail')}">Back to mail admin</a></p>
+      </section>`;
+    res.send(layout('Mailbox Checked', body, '<meta name="robots" content="noindex,nofollow">'));
+  } catch (error) {
+    res.status(500).send(layout('Mail Admin', `<h1>Mail Admin</h1><p>${esc(error.message || error)}</p>`, '<meta name="robots" content="noindex,nofollow">'));
+  }
 });
 
 app.get('/health', (req,res) => res.json({ok:true, service:'sg-news'}));
