@@ -247,3 +247,146 @@ h3 { font-size: 1.2rem; margin-top: 1.8em; }
   .toolbar { grid-template-columns: 1fr; }
   .header-inner { min-height: 68px; }
 }
+
+
+/* Homepage quick filters */
+:root {
+  --max: 1380px;
+}
+
+.toolbar {
+  grid-template-columns: minmax(260px, 1fr) 220px auto;
+}
+
+.news-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) minmax(180px, 240px);
+  gap: 24px;
+  align-items: start;
+}
+
+.filter-sidebar {
+  position: sticky;
+  top: 100px;
+}
+
+.filter-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.filter-panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  letter-spacing: 0;
+}
+
+.filter-link,
+.tag-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 2px 0;
+  font-size: .9rem;
+  line-height: 1.35;
+}
+
+.filter-link:hover,
+.tag-link:hover {
+  background: var(--surface-2);
+}
+
+.filter-link.active,
+.tag-link.active {
+  background: var(--surface-2);
+  font-weight: 800;
+  outline: 1px solid var(--line);
+}
+
+.filter-count {
+  color: var(--muted);
+  font-size: .78rem;
+  flex: 0 0 auto;
+}
+
+.tag-list {
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.active-filter a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 1.05em;
+}
+
+@media (max-width: 1050px) {
+  :root { --max: 920px; }
+
+  .news-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-sidebar {
+    position: static;
+  }
+
+  .filter-sidebar-left { order: 1; }
+  .article-list { order: 2; }
+  .filter-sidebar-right { order: 3; }
+
+  .filter-panel {
+    padding: 14px;
+  }
+
+  .filter-sidebar-left .filter-panel,
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .filter-sidebar-left .filter-panel h2,
+  .filter-sidebar-right .filter-panel h2 {
+    width: 100%;
+  }
+
+  .filter-link,
+  .tag-link {
+    border: 1px solid var(--line);
+    margin: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .toolbar { grid-template-columns: 1fr; }
+}
