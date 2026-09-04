@@ -62,7 +62,19 @@ server.registerTool(
     }
   },
   async ({ query, limit }) => {
-    const rows = await api("/articles");
+    const response = await api("/articles");
+    const rows = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.articles)
+        ? response.articles
+        : Array.isArray(response?.data)
+          ? response.data
+          : null;
+
+    if (!rows) {
+      throw new Error("Unexpected SG News article-list response: " + JSON.stringify(response));
+    }
+
     const q = query.trim().toLowerCase();
 
     const filtered = q
