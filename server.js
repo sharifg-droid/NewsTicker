@@ -223,20 +223,53 @@ app.get(route(), async (req,res,next) => {
     const db = await dbPromise;
     const q = String(req.query.q || '').trim();
     const category = String(req.query.category || '').trim();
+    const tag = String(req.query.tag || '').trim();
     const type = String(req.query.type || '').trim();
 
     const clauses = ['is_hidden=0'];
     const args = [];
     if (q) { clauses.push('(title LIKE ? OR standfirst LIKE ? OR body_html LIKE ?)'); args.push('%'+q+'%','%'+q+'%','%'+q+'%'); }
     if (category) { clauses.push('id IN (SELECT article_id FROM article_categories WHERE category=?)'); args.push(category); }
+    if (tag) { clauses.push('id IN (SELECT article_id FROM article_tags WHERE tag=?)'); args.push(tag); }
     if (type) { clauses.push('briefing_type=?'); args.push(type); }
 
     const articles = await db.all(
       `SELECT * FROM articles WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC LIMIT 100`,
       ...args
     );
-    const categories = await db.all('SELECT DISTINCT category FROM article_categories ORDER BY category');
+    const categories = await db.all(`
+      SELECT ac.category, COUNT(*) AS count
+      FROM article_categories ac
+      JOIN articles a ON a.id = ac.article_id
+      WHERE a.is_hidden=0
+      GROUP BY ac.category
+      ORDER BY ac.category
+    `);
+    const tags = await db.all(`
+      SELECT at.tag, COUNT(*) AS count
+      FROM article_tags at
+      JOIN articles a ON a.id = at.article_id
+      WHERE a.is_hidden=0
+      GROUP BY at.tag
+      ORDER BY at.tag
+    `);
     const types = await db.all('SELECT DISTINCT briefing_type FROM articles WHERE is_hidden=0 ORDER BY briefing_type');
+
+    const filterUrl = (changes={}) => {
+      const params = new URLSearchParams();
+      const next = {
+        q,
+        category,
+        tag,
+        type,
+        ...changes
+      };
+      for (const [key, value] of Object.entries(next)) {
+        if (value) params.set(key, value);
+      }
+      const query = params.toString();
+      return publicPath() + (query ? '?' + query : '');
+    };
 
     const cards = articles.map(a => {
       const newOrUpdated = a.updated_at === a.published_at ? 'New' : 'Updated';
@@ -255,13 +288,49 @@ app.get(route(), async (req,res,next) => {
     const body = `
       <h1>SG News</h1>
       <p class="intro">A searchable record of recurring briefings, research updates and evolving articles. Important pieces rise when they are materially updated.</p>
+
       <form class="toolbar" method="get" action="${publicPath()}">
         <input type="search" name="q" value="${esc(q)}" placeholder="Search SG News">
-        <select name="category"><option value="">All categories</option>${categories.map(c=>`<option ${c.category===category?'selected':''}>${esc(c.category)}</option>`).join('')}</select>
         <select name="type"><option value="">All briefing types</option>${types.map(t=>`<option ${t.briefing_type===type?'selected':''}>${esc(t.briefing_type)}</option>`).join('')}</select>
+        ${category ? `<input type="hidden" name="category" value="${esc(category)}">` : ''}
+        ${tag ? `<input type="hidden" name="tag" value="${esc(tag)}">` : ''}
         <button type="submit">Search</button>
       </form>
-      <section class="article-list">${cards || '<p class="empty">No articles matched that search.</p>'}</section>`;
+
+      <div class="news-grid">
+        <aside class="filter-sidebar filter-sidebar-left">
+          <div class="filter-panel">
+            <h2>Categories</h2>
+            <a class="filter-link ${!category ? 'active' : ''}" href="${filterUrl({category:''})}">
+              <span>All categories</span>
+            </a>
+            ${categories.map(c => `
+              <a class="filter-link ${c.category===category ? 'active' : ''}" href="${filterUrl({category:c.category})}">
+                <span>${esc(c.category)}</span><span class="filter-count">${Number(c.count)}</span>
+              </a>`).join('')}
+          </div>
+        </aside>
+
+        <section class="article-list">
+          ${(category || tag) ? `<div class="active-filters">
+            ${category ? `<span class="active-filter">Category: ${esc(category)} <a href="${filterUrl({category:''})}" aria-label="Clear category filter">×</a></span>` : ''}
+            ${tag ? `<span class="active-filter">Tag: ${esc(tag)} <a href="${filterUrl({tag:''})}" aria-label="Clear tag filter">×</a></span>` : ''}
+          </div>` : ''}
+          ${cards || '<p class="empty">No articles matched that search.</p>'}
+        </section>
+
+        <aside class="filter-sidebar filter-sidebar-right">
+          <div class="filter-panel">
+            <h2>Tags</h2>
+            <div class="tag-list">
+              ${tags.map(t => `
+                <a class="tag-link ${t.tag===tag ? 'active' : ''}" href="${filterUrl({tag:t.tag})}">
+                  <span>${esc(t.tag)}</span><span class="filter-count">${Number(t.count)}</span>
+                </a>`).join('') || '<p class="meta">No tags yet.</p>'}
+            </div>
+          </div>
+        </aside>
+      </div>`;
     res.send(layout('Home', body));
   } catch (e) { next(e); }
 });
