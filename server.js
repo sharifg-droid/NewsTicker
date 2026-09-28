@@ -8,6 +8,7 @@ const slugify = require('slugify');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -21,6 +22,8 @@ const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'sgnews.sqli
 
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const dbPromise = open({ filename: DB_FILE, driver: sqlite3.Database });
 
@@ -216,7 +219,24 @@ const apiLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: tru
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '4mb' }));
 app.use(route('/assets'), express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const safeExt = ['.jpg','.jpeg','.png','.gif','.webp'].includes(ext) ? ext : '.jpg';
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${safeExt}`);
+    }
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['image/jpeg','image/png','image/gif','image/webp'].includes(file.mimetype);
+    cb(ok ? null : new Error('Only JPG, PNG, GIF and WebP images are allowed'), ok);
+  }
+});
 
 app.get(route(), async (req,res,next) => {
   try {
@@ -334,6 +354,203 @@ app.get(route(), async (req,res,next) => {
     res.send(layout('Home', body));
   } catch (e) { next(e); }
 });
+
+function cmsEditorPage(article={}) {
+  const isNew = !article.id;
+  const categories = Array.isArray(article.categories) ? article.categories.join(', ') : (article.primary_category || 'General');
+  const tags = Array.isArray(article.tags) ? article.tags.join(', ') : '';
+  const status = article.status || 'Developing';
+  const statuses = ['Confirmed','Developing','Speculative','Superseded'];
+  const action = isNew ? route('/admin/content/new') : route('/admin/content/' + encodeURIComponent(article.slug) + '/edit');
+
+  return layout(isNew ? 'New Article' : 'Edit Article', `
+    <div class="cms-topbar">
+      <div><span class="badge">Admin</span><h1>${isNew ? 'New article' : 'Edit article'}</h1></div>
+      <div class="cms-actions">
+        <a class="button-link secondary" href="${route('/admin/content')}">Back to articles</a>
+        <a class="button-link secondary" href="${route('/admin/mail')}">Mail importer</a>
+      </div>
+    </div>
+    <form class="cms-form" method="post" action="${action}" data-cms-form>
+      <div class="cms-grid">
+        <label>Title<input name="title" value="${esc(article.title || '')}" required></label>
+        <label>Slug<input name="slug" value="${esc(article.slug || '')}" placeholder="Generated from title if blank"></label>
+      </div>
+      <label>Standfirst<textarea name="standfirst" rows="3">${esc(article.standfirst || '')}</textarea></label>
+      <div class="cms-grid cms-grid-3">
+        <label>Status<select name="status">${statuses.map(s => `<option value="${s}" ${s===status?'selected':''}>${s}</option>`).join('')}</select></label>
+        <label>Primary category<input name="primary_category" value="${esc(article.primary_category || 'General')}"></label>
+        <label>Briefing type<input name="briefing_type" value="${esc(article.briefing_type || 'Article')}"></label>
+      </div>
+      <label>Categories <span class="field-help">comma separated</span><input name="categories" value="${esc(categories)}"></label>
+      <label>Tags <span class="field-help">comma separated</span><input name="tags" value="${esc(tags)}"></label>
+      <label>Project / source<input name="project_source" value="${esc(article.project_source || '')}"></label>
+      <section class="cms-editor-card">
+        <div class="editor-toolbar" data-editor-toolbar>
+          <button type="button" data-cmd="formatBlock" data-value="p">Paragraph</button>
+          <button type="button" data-cmd="formatBlock" data-value="h1">H1</button>
+          <button type="button" data-cmd="formatBlock" data-value="h2">H2</button>
+          <button type="button" data-cmd="formatBlock" data-value="h3">H3</button>
+          <button type="button" data-cmd="bold"><strong>B</strong></button>
+          <button type="button" data-cmd="italic"><em>I</em></button>
+          <button type="button" data-cmd="insertUnorderedList">Bullets</button>
+          <button type="button" data-cmd="createLink">Link</button>
+          <button type="button" data-image-button>Insert image</button>
+          <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden data-image-input>
+        </div>
+        <div class="cms-editor" contenteditable="true" data-editor data-upload-url="${route('/admin/content/upload')}">${article.body_html || '<p>Start writing here…</p>'}</div>
+        <input type="hidden" name="body_html" data-body-html>
+        <p class="field-help">Formatting is deliberately basic: paragraph, H1–H3, bold, italic, lists, links and images.</p>
+      </section>
+      <label>What changed<textarea name="what_changed" rows="2">${esc(article.what_changed || '')}</textarea></label>
+      <label>Revision note<input name="revision_summary" value="${esc(isNew ? 'Initial publication' : 'Edited in CMS')}"></label>
+      <div class="cms-actions">
+        <button type="submit">${isNew ? 'Publish article' : 'Save changes'}</button>
+        ${!isNew ? `<a class="button-link secondary" href="${publicPath(encodeURIComponent(article.slug))}" target="_blank" rel="noopener">View article</a>` : ''}
+      </div>
+    </form>
+  `, '<meta name="robots" content="noindex,nofollow">');
+}
+
+app.get(route('/admin/content'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const rows = await db.all('SELECT * FROM articles ORDER BY is_hidden ASC, updated_at DESC');
+    const body = `
+      <div class="cms-topbar">
+        <div><span class="badge">Admin</span><h1>Content CMS</h1><p class="intro">A deliberately simple editor for SG News content.</p></div>
+        <div class="cms-actions"><a class="button-link" href="${route('/admin/content/new')}">New article</a><a class="button-link secondary" href="${route('/admin/mail')}">Mail importer</a></div>
+      </div>
+      <div class="cms-table-wrap"><table class="cms-table">
+        <thead><tr><th>Article</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead>
+        <tbody>${rows.map(a => `
+          <tr class="${a.is_hidden ? 'cms-archived' : ''}">
+            <td><strong>${esc(a.title)}</strong><div class="meta">${esc(a.slug)}${a.is_hidden ? ' · Archived' : ''}</div></td>
+            <td>${esc(a.status)}</td>
+            <td>${new Date(a.updated_at).toLocaleDateString('en-GB')}</td>
+            <td><div class="cms-row-actions">
+              <a href="${route('/admin/content/' + encodeURIComponent(a.slug) + '/edit')}">Edit</a>
+              <form method="post" action="${route('/admin/content/' + encodeURIComponent(a.slug) + (a.is_hidden ? '/restore' : '/archive'))}"><button type="submit" class="link-button">${a.is_hidden ? 'Restore' : 'Archive'}</button></form>
+              <form method="post" action="${route('/admin/content/' + encodeURIComponent(a.slug) + '/delete')}" onsubmit="return confirm('Permanently delete this article? This cannot be undone.')"><button type="submit" class="link-button danger">Delete</button></form>
+            </div></td>
+          </tr>`).join('')}</tbody>
+      </table></div>`;
+    res.send(layout('Content CMS', body, '<meta name="robots" content="noindex,nofollow">'));
+  } catch (e) { next(e); }
+});
+
+app.get(route('/admin/content/new'), adminAuth, (req,res) => res.send(cmsEditorPage({})));
+
+app.post(route('/admin/content/new'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const title = String(req.body.title || '').trim();
+    if (!title) return res.status(400).send(layout('CMS Error','<h1>Title is required</h1>','<meta name="robots" content="noindex,nofollow">'));
+    const slug = String(req.body.slug || '').trim() || slugify(title, { lower:true, strict:true });
+    if (await db.get('SELECT id FROM articles WHERE slug=?', slug)) return res.status(409).send(layout('CMS Error', `<h1>Slug already exists</h1><p><a href="${route('/admin/content')}">Back to CMS</a></p>`, '<meta name="robots" content="noindex,nofollow">'));
+    const now = nowIso();
+    const primary = String(req.body.primary_category || 'General').trim() || 'General';
+    const categories = normalizeList(req.body.categories);
+    if (!categories.includes(primary)) categories.unshift(primary);
+    const tags = normalizeList(req.body.tags);
+    const result = await db.run(
+      `INSERT INTO articles (slug,title,standfirst,body_html,status,primary_category,briefing_type,project_source,published_at,updated_at,what_changed,is_hidden)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,0)`,
+      slug, title, String(req.body.standfirst || ''), cleanHtml(String(req.body.body_html || '')),
+      String(req.body.status || 'Developing'), primary, String(req.body.briefing_type || 'Article'),
+      String(req.body.project_source || ''), now, now, String(req.body.what_changed || '').slice(0,1000)
+    );
+    for (const c of categories) await db.run('INSERT OR IGNORE INTO article_categories(article_id,category) VALUES (?,?)', result.lastID, c);
+    for (const t of tags) await db.run('INSERT OR IGNORE INTO article_tags(article_id,tag) VALUES (?,?)', result.lastID, t);
+    await db.run('INSERT INTO revisions(article_id,changed_at,summary) VALUES (?,?,?)', result.lastID, now, String(req.body.revision_summary || 'Initial publication'));
+    res.redirect(route('/admin/content/' + encodeURIComponent(slug) + '/edit'));
+  } catch (e) { next(e); }
+});
+
+app.get(route('/admin/content/:slug/edit'), adminAuth, async (req,res,next) => {
+  try {
+    const article = await getArticleBySlug(req.params.slug);
+    if (!article) return res.status(404).send(layout('Not found','<h1>Article not found</h1>','<meta name="robots" content="noindex,nofollow">'));
+    res.send(cmsEditorPage(article));
+  } catch (e) { next(e); }
+});
+
+app.post(route('/admin/content/:slug/edit'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const article = await db.get('SELECT * FROM articles WHERE slug=?', req.params.slug);
+    if (!article) return res.status(404).send(layout('Not found','<h1>Article not found</h1>','<meta name="robots" content="noindex,nofollow">'));
+    const title = String(req.body.title || '').trim();
+    const newSlug = String(req.body.slug || '').trim() || article.slug;
+    const primary = String(req.body.primary_category || 'General').trim() || 'General';
+    const updated = nowIso();
+    await db.run(
+      `UPDATE articles SET slug=?,title=?,standfirst=?,body_html=?,status=?,primary_category=?,briefing_type=?,project_source=?,updated_at=?,what_changed=? WHERE id=?`,
+      newSlug, title, String(req.body.standfirst || ''), cleanHtml(String(req.body.body_html || '')),
+      String(req.body.status || 'Developing'), primary, String(req.body.briefing_type || 'Article'),
+      String(req.body.project_source || ''), updated, String(req.body.what_changed || '').slice(0,1000), article.id
+    );
+    const categories = normalizeList(req.body.categories);
+    if (!categories.includes(primary)) categories.unshift(primary);
+    await db.run('DELETE FROM article_categories WHERE article_id=?', article.id);
+    for (const c of categories) await db.run('INSERT OR IGNORE INTO article_categories(article_id,category) VALUES (?,?)', article.id, c);
+    await db.run('DELETE FROM article_tags WHERE article_id=?', article.id);
+    for (const t of normalizeList(req.body.tags)) await db.run('INSERT OR IGNORE INTO article_tags(article_id,tag) VALUES (?,?)', article.id, t);
+    await db.run('INSERT INTO revisions(article_id,changed_at,summary) VALUES (?,?,?)', article.id, updated, String(req.body.revision_summary || 'Edited in CMS'));
+    res.redirect(route('/admin/content/' + encodeURIComponent(newSlug) + '/edit'));
+  } catch (e) { next(e); }
+});
+
+app.post(route('/admin/content/:slug/archive'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const article = await db.get('SELECT id FROM articles WHERE slug=?', req.params.slug);
+    if (!article) return res.status(404).send('Not found');
+    const now = nowIso();
+    await db.run('UPDATE articles SET is_hidden=1, updated_at=? WHERE id=?', now, article.id);
+    await db.run('INSERT INTO revisions(article_id,changed_at,summary) VALUES (?,?,?)', article.id, now, 'Archived in CMS');
+    res.redirect(route('/admin/content'));
+  } catch (e) { next(e); }
+});
+
+app.post(route('/admin/content/:slug/restore'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const article = await db.get('SELECT id FROM articles WHERE slug=?', req.params.slug);
+    if (!article) return res.status(404).send('Not found');
+    const now = nowIso();
+    await db.run('UPDATE articles SET is_hidden=0, updated_at=? WHERE id=?', now, article.id);
+    await db.run('INSERT INTO revisions(article_id,changed_at,summary) VALUES (?,?,?)', article.id, now, 'Restored from archive');
+    res.redirect(route('/admin/content'));
+  } catch (e) { next(e); }
+});
+
+app.post(route('/admin/content/:slug/delete'), adminAuth, async (req,res,next) => {
+  try {
+    const db = await dbPromise;
+    const article = await db.get('SELECT id FROM articles WHERE slug=?', req.params.slug);
+    if (!article) return res.status(404).send('Not found');
+    await db.exec('BEGIN');
+    try {
+      await db.run('DELETE FROM article_categories WHERE article_id=?', article.id);
+      await db.run('DELETE FROM article_tags WHERE article_id=?', article.id);
+      await db.run('DELETE FROM article_sources WHERE article_id=?', article.id);
+      await db.run('DELETE FROM revisions WHERE article_id=?', article.id);
+      await db.run('DELETE FROM articles WHERE id=?', article.id);
+      await db.exec('COMMIT');
+    } catch (error) {
+      await db.exec('ROLLBACK');
+      throw error;
+    }
+    res.redirect(route('/admin/content'));
+  } catch (e) { next(e); }
+});
+
+app.post(route('/admin/content/upload'), adminAuth, upload.single('image'), (req,res) => {
+  if (!req.file) return res.status(400).json({error:'No image uploaded'});
+  res.json({ok:true,url: publicPath('assets/uploads/' + encodeURIComponent(req.file.filename)),filename:req.file.filename});
+});
+
 
 app.get(route('/:slug'), async (req,res,next) => {
   try {
