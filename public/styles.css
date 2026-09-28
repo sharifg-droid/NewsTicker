@@ -643,3 +643,18 @@ h3 { font-size: 1.2rem; margin-top: 1.8em; }
     margin:1.2em auto;
   }
 }
+
+
+/* Keep first editor line clear of sticky toolbar */
+.cms-editor {
+  scroll-padding-top: 90px;
+}
+.cms-editor > :first-child {
+  margin-top: 0;
+}
+.cms-editor-card {
+  position: relative;
+}
+.editor-toolbar {
+  position: sticky;
+}
