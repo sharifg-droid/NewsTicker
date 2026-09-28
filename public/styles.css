@@ -553,3 +553,93 @@ h3 { font-size: 1.2rem; margin-top: 1.8em; }
   .editor-toolbar { top:68px; }
   .cms-editor { min-height:420px; padding:16px; }
 }
+
+
+/* CMS image layout controls */
+.image-controls {
+  display:none;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:6px;
+  padding-left:8px;
+  margin-left:4px;
+  border-left:1px solid var(--line);
+}
+.image-controls.active { display:inline-flex; }
+.image-controls-label {
+  color:var(--muted);
+  font-size:.78rem;
+  font-weight:800;
+  padding:0 3px;
+}
+
+.cms-editor figure,
+.article-body figure {
+  max-width:100%;
+  margin:1.2em auto;
+}
+.cms-editor figure img,
+.article-body figure img {
+  display:block;
+  width:100%;
+  height:auto;
+}
+.cms-editor figure.image-size-25,
+.article-body figure.image-size-25 { width:25%; }
+.cms-editor figure.image-size-40,
+.article-body figure.image-size-40 { width:40%; }
+.cms-editor figure.image-size-60,
+.article-body figure.image-size-60 { width:60%; }
+.cms-editor figure.image-size-100,
+.article-body figure.image-size-100 { width:100%; }
+
+.cms-editor figure.image-wrap-left,
+.article-body figure.image-wrap-left {
+  float:left;
+  margin:0.3em 1.4em 1em 0;
+}
+.cms-editor figure.image-wrap-right,
+.article-body figure.image-wrap-right {
+  float:right;
+  margin:0.3em 0 1em 1.4em;
+}
+.cms-editor figure.image-block,
+.article-body figure.image-block {
+  float:none;
+  clear:both;
+  margin:1.3em auto;
+}
+.cms-editor figure.image-selected {
+  outline:3px solid var(--link);
+  outline-offset:3px;
+}
+.cms-editor figcaption,
+.article-body figcaption {
+  color:var(--muted);
+  font-size:.82rem;
+  line-height:1.4;
+  margin-top:.45em;
+}
+.article-body::after,
+.cms-editor::after {
+  content:"";
+  display:block;
+  clear:both;
+}
+
+@media (max-width: 700px) {
+  .cms-editor figure.image-size-25,
+  .cms-editor figure.image-size-40,
+  .article-body figure.image-size-25,
+  .article-body figure.image-size-40 {
+    width:50%;
+  }
+  .cms-editor figure.image-wrap-left,
+  .cms-editor figure.image-wrap-right,
+  .article-body figure.image-wrap-left,
+  .article-body figure.image-wrap-right {
+    float:none;
+    width:100%;
+    margin:1.2em auto;
+  }
+}
