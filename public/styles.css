@@ -658,3 +658,13 @@ h3 { font-size: 1.2rem; margin-top: 1.8em; }
 .editor-toolbar {
   position: sticky;
 }
+
+
+/* CMS toolbar must not cover the first lines of article text */
+.editor-toolbar {
+  position: static !important;
+  top: auto !important;
+}
+.cms-editor {
+  padding-top: 24px !important;
+}
